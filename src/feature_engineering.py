@@ -133,3 +133,32 @@ def feature_columns() -> list[str]:
     cols += [f"weather_{w}" for w in WEATHER_CATEGORIES]
     cols += [f"dow_{d}" for d in DOW_NAMES]
     return cols
+
+
+CLASS_LABELS = {0: "少", 1: "普", 2: "多"}
+
+
+def fit_sales_thresholds(sales: pd.Series, low_q: float = 1 / 3, high_q: float = 2 / 3) -> tuple[float, float]:
+    """Return (low, high) cut points for the 3-class discretization.
+
+    A degenerate case (low == high) can happen when the distribution is heavily
+    zero-inflated (e.g. P004). We nudge ``high`` up so that at least the top
+    bucket is non-empty and ordering of bins is preserved.
+    """
+    low = float(sales.quantile(low_q))
+    high = float(sales.quantile(high_q))
+    if high <= low:
+        positives = sales[sales > low]
+        if len(positives) > 0:
+            high = float(positives.min())
+        else:
+            high = low + 1.0
+    return low, high
+
+
+def discretize_sales(sales: pd.Series, low: float, high: float) -> pd.Series:
+    """Assign each value to {0=少, 1=普, 2=多} given pre-fit thresholds."""
+    labels = pd.Series(1, index=sales.index, dtype=int)
+    labels[sales <= low] = 0
+    labels[sales > high] = 2
+    return labels
