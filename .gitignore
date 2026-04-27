@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code local settings
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Trained model artifacts (kept out of Git; .gitkeep preserves the folder)
+models/*
+!models/.gitkeep
+
+# Streamlit cache
+.streamlit/secrets.toml
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
