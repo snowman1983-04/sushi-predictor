@@ -1,11 +1,13 @@
-"""Streamlit entry point for the sushi sales predictor (M3 scope).
+"""Streamlit entry point for the sushi sales predictor (M4 scope).
 
-Tabs 1 (prediction) and 3 (model comparison) are wired. Tabs 2/4 are stubs.
+All four tabs are wired: prediction, data exploration, model comparison,
+methodology. Tab4 reads docs/methodology.md.
 """
 
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -13,6 +15,16 @@ import plotly.express as px
 import streamlit as st
 
 from src.data_loader import load_data
+from src.eda import (
+    basic_stats,
+    chart_by_dayofweek,
+    chart_by_weather,
+    chart_correlation_heatmap,
+    chart_residuals,
+    chart_timeseries,
+    residual_data,
+    stats_by_product,
+)
 from src.feature_engineering import (
     CLASS_LABELS,
     PRODUCT_IDS,
@@ -22,6 +34,8 @@ from src.feature_engineering import (
 from src.models import MODEL_DISPLAY_NAMES, MODEL_REGISTRY, is_classification
 from src.predictor import PRODUCT_NAMES, load_models, model_path, predict
 from src.trainer import train_all
+
+METHODOLOGY_PATH = Path(__file__).resolve().parent / "docs" / "methodology.md"
 
 st.set_page_config(page_title="寿司販売数予測アプリ", page_icon="🍣", layout="wide")
 
@@ -215,6 +229,80 @@ def _comparison_tab() -> None:
     st.dataframe(cm_df, use_container_width=True)
     st.caption("対角成分が多いほど良い。行=実際のクラス、列=予測したクラス。")
 
+    st.divider()
+    st.subheader("残差プロット（実測 vs 予測）")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        resid_model = st.selectbox(
+            "モデル",
+            options=REGRESSION_MODELS,
+            format_func=lambda x: MODEL_DISPLAY_NAMES[x],
+            key="resid_model",
+        )
+    with col_b:
+        resid_pid = st.selectbox(
+            "商品",
+            options=PRODUCT_IDS,
+            format_func=lambda x: PRODUCT_NAMES[x],
+            key="resid_product",
+        )
+    rd = residual_data(_cached_data(), resid_model, resid_pid)
+    title = f"{MODEL_DISPLAY_NAMES[resid_model]} × {PRODUCT_NAMES[resid_pid]}"
+    st.plotly_chart(chart_residuals(rd, title), use_container_width=True)
+    st.caption(
+        "赤い破線が y=x（理想）。点が線上に乗るほど予測が当たっている。"
+        "学習データに対する予測なので、未知データでの精度は精度比較表（CV）を参照。"
+    )
+
+
+# ---------- Tab2: data exploration ---------------------------------------------------
+
+
+def _exploration_tab() -> None:
+    df = _cached_data()
+
+    st.subheader("基本統計量")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**全体（数値カラム）**")
+        st.dataframe(basic_stats(df), use_container_width=True)
+    with col2:
+        st.markdown("**商品別（販売数）**")
+        st.dataframe(stats_by_product(df), use_container_width=True)
+
+    st.divider()
+    st.subheader("販売数の時系列")
+    st.plotly_chart(chart_timeseries(df), use_container_width=True)
+    st.caption("曜日効果（水曜・週末の山）と季節変動を確認できる。")
+
+    st.divider()
+    st.subheader("曜日別の分布")
+    st.plotly_chart(chart_by_dayofweek(df), use_container_width=True)
+    st.caption("水曜・土日が高く、ランチ寿司（P004）はそれ以外で0。")
+
+    st.divider()
+    st.subheader("天気別の平均販売数")
+    st.plotly_chart(chart_by_weather(df), use_container_width=True)
+    st.caption("雨・雪で販売が落ちる傾向（×0.7・×0.5の係数を反映）。")
+
+    st.divider()
+    st.subheader("特徴量の相関ヒートマップ")
+    st.plotly_chart(chart_correlation_heatmap(df), use_container_width=True)
+    st.caption(
+        "sales_count と is_sale_day の正相関、precipitation との負相関などを視認可能。"
+        "ただし相関は線形関係しか測れない点に注意（非線形パターンはRF/GB側で捕捉）。"
+    )
+
+
+# ---------- Tab4: methodology --------------------------------------------------------
+
+
+def _methodology_tab() -> None:
+    if METHODOLOGY_PATH.exists():
+        st.markdown(METHODOLOGY_PATH.read_text(encoding="utf-8"))
+    else:
+        st.warning(f"{METHODOLOGY_PATH} が見つかりません。")
+
 
 # ---------- Main ---------------------------------------------------------------------
 
@@ -240,11 +328,11 @@ def main() -> None:
     with tab1:
         _prediction_tab(model_name, models)
     with tab2:
-        st.info("M4で実装予定：時系列・曜日別・天気別グラフ、相関ヒートマップ。")
+        _exploration_tab()
     with tab3:
         _comparison_tab()
     with tab4:
-        st.info("M4で実装予定：各モデルの数学的説明、選択根拠、LLM不採用の理由。")
+        _methodology_tab()
 
 
 if __name__ == "__main__":
