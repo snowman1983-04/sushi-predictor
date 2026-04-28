@@ -78,18 +78,33 @@ def _prediction_inputs():
                 "snowy": "❄️ 雪",
             }[x],
         )
+        cpi_index = st.number_input(
+            "CPI指数（食料、2024-04=100）",
+            min_value=90.0,
+            max_value=130.0,
+            value=108.0,
+            step=0.1,
+            help="学習データは2024-04〜2027-03で100→108程度に上昇。直近月の値を入れると精度が上がる。",
+        )
     with col2:
         temperature = st.slider("気温（℃）", min_value=-15, max_value=35, value=20)
         precipitation = st.slider("降水量（mm）", min_value=0, max_value=30, value=0)
-    return target_date, weather, temperature, precipitation
+    return target_date, weather, temperature, precipitation, cpi_index
 
 
 def _prediction_tab(model_name: str, models: dict[str, dict]) -> None:
     st.subheader(f"販売数を予測（{MODEL_DISPLAY_NAMES[model_name]}）")
-    target_date, weather, temperature, precipitation = _prediction_inputs()
+    target_date, weather, temperature, precipitation, cpi_index = _prediction_inputs()
 
     if st.button("予測実行", type="primary"):
-        result = predict(models, target_date, weather, float(temperature), float(precipitation))
+        result = predict(
+            models,
+            target_date,
+            weather,
+            float(temperature),
+            float(precipitation),
+            cpi_index=float(cpi_index),
+        )
         st.success(f"{target_date} の予測結果")
 
         if is_classification(model_name):
