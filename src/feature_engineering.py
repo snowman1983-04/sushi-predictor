@@ -14,7 +14,7 @@ WEATHER_CATEGORIES = ["sunny", "cloudy", "rainy", "snowy"]
 DOW_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 PRODUCT_IDS = ["P001", "P002", "P003", "P004"]
 
-NUMERIC_COLS = ["temperature", "precipitation", "month"]
+NUMERIC_COLS = ["temperature", "precipitation", "month", "effective_price", "cpi_index"]
 FLAG_COLS = ["is_weekend", "is_holiday", "is_pension_day", "is_sale_day"]
 
 
@@ -78,6 +78,8 @@ def _assemble_features(df: pd.DataFrame) -> pd.DataFrame:
     out["temperature"] = df["temperature"].astype(float)
     out["precipitation"] = df["precipitation"].astype(float)
     out["month"] = df["month"].astype(int)
+    out["effective_price"] = df["effective_price"].astype(float)
+    out["cpi_index"] = df["cpi_index"].astype(float)
     for col in FLAG_COLS:
         out[col] = df[col].astype(int)
     out = pd.concat(
@@ -106,6 +108,8 @@ def prepare_input(
     weather: str,
     temperature: float,
     precipitation: float,
+    effective_price: float,
+    cpi_index: float,
 ) -> pd.DataFrame:
     """Build a single-row feature matrix for inference."""
     if isinstance(target_date, str):
@@ -121,6 +125,8 @@ def prepare_input(
         "temperature": temperature,
         "precipitation": precipitation,
         "weather": weather,
+        "effective_price": effective_price,
+        "cpi_index": cpi_index,
         **flags,
     }
     df = pd.DataFrame([row])
@@ -129,7 +135,7 @@ def prepare_input(
 
 def feature_columns() -> list[str]:
     """Canonical column order. Useful for sanity checks."""
-    cols = ["temperature", "precipitation", "month"] + FLAG_COLS
+    cols = ["temperature", "precipitation", "month", "effective_price", "cpi_index"] + FLAG_COLS
     cols += [f"weather_{w}" for w in WEATHER_CATEGORIES]
     cols += [f"dow_{d}" for d in DOW_NAMES]
     return cols

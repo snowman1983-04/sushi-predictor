@@ -1,7 +1,19 @@
 """Generate dummy sushi sales data per spec.md section 4.
 
 Output: data/sushi_sales.csv
-Period: 2024-04-01 to 2026-03-31 (730 days) x 4 products = 2920 rows.
+Period: 2024-04-01 to 2027-03-31 (1095 days) x 4 products = 4380 rows.
+
+Updated post-Eliza review:
+- Extended from 2 years to 3 years.
+- Replaced the prior "sale_only" flag with explicit per-product availability
+  schedules (available_dows) reflecting the actual operational pattern:
+    P001 水木寿司：水・木のみ
+    P002 春8貫寿司：毎日
+    P003 絆10貫寿司：毎日
+    P004 ランチ寿司：水・木以外
+- Added effective_price (nominal, with sale-day discount) and cpi_index
+  (monthly CPI multiplier) columns. Sales react to CPI via a small
+  inflation drag.
 """
 
 from __future__ import annotations
@@ -14,13 +26,25 @@ import pandas as pd
 
 SEED = 42
 START_DATE = date(2024, 4, 1)
-END_DATE = date(2026, 3, 31)
+END_DATE = date(2027, 3, 31)
 
+# product master
+# - available_dows: weekdays (Mon=0..Sun=6) on which the product is offered.
+#   Outside these days the row still appears with sales=0 to keep the grid.
+# - price_normal / price_sale: yen per item; price_sale applies on is_sale_day.
 PRODUCTS = [
-    {"product_id": "P001", "product_name": "水木寿司（10貫）", "base": 12, "sale_only": False},
-    {"product_id": "P002", "product_name": "8貫寿司",          "base": 10, "sale_only": False},
-    {"product_id": "P003", "product_name": "10貫寿司",         "base": 15, "sale_only": False},
-    {"product_id": "P004", "product_name": "ランチ寿司",       "base": 20, "sale_only": True},
+    {"product_id": "P001", "product_name": "水木寿司（10貫）", "base": 25,
+     "available_dows": (2, 3),                  # Wed, Thu only
+     "price_normal": 500, "price_sale": 500},   # always lowest price (集客商品)
+    {"product_id": "P002", "product_name": "春8貫寿司",        "base": 10,
+     "available_dows": (0, 1, 2, 3, 4, 5, 6),   # everyday
+     "price_normal": 600, "price_sale": 500},
+    {"product_id": "P003", "product_name": "絆10貫寿司",       "base": 12,
+     "available_dows": (0, 1, 2, 3, 4, 5, 6),   # everyday
+     "price_normal": 600, "price_sale": 500},
+    {"product_id": "P004", "product_name": "ランチ寿司",       "base": 15,
+     "available_dows": (0, 1, 4, 5, 6),         # Mon, Tue, Fri, Sat, Sun
+     "price_normal": 500, "price_sale": 500},
 ]
 
 # Hirosaki monthly mean temperature (deg C), index 1..12
@@ -29,59 +53,69 @@ MONTHLY_MEAN_TEMP = {
     7: 23.0, 8: 25.0, 9: 20.0, 10: 13.0, 11: 7.0, 12: 1.0,
 }
 
+# Monthly food CPI rebased to 2024-04 = 100.0.
+# Reference: 総務省統計局 消費者物価指数（食料、2020年=100基準）の推移を参考に近似。
+# 出典：https://www.stat.go.jp/data/cpi/  (food category, monthly).
+MONTHLY_CPI: dict[tuple[int, int], float] = {
+    (2024, 4): 100.0, (2024, 5): 100.3, (2024, 6): 100.5,
+    (2024, 7): 100.7, (2024, 8): 100.9, (2024, 9): 101.1,
+    (2024, 10): 101.4, (2024, 11): 101.6, (2024, 12): 101.8,
+    (2025, 1): 102.0, (2025, 2): 102.3, (2025, 3): 102.5,
+    (2025, 4): 102.7, (2025, 5): 102.9, (2025, 6): 103.2,
+    (2025, 7): 103.4, (2025, 8): 103.6, (2025, 9): 103.9,
+    (2025, 10): 104.1, (2025, 11): 104.4, (2025, 12): 104.6,
+    (2026, 1): 104.8, (2026, 2): 105.1, (2026, 3): 105.3,
+    (2026, 4): 105.6, (2026, 5): 105.8, (2026, 6): 106.1,
+    (2026, 7): 106.3, (2026, 8): 106.6, (2026, 9): 106.8,
+    (2026, 10): 107.1, (2026, 11): 107.3, (2026, 12): 107.6,
+    (2027, 1): 107.8, (2027, 2): 108.1, (2027, 3): 108.3,
+}
+
 DOW_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
 def nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> date:
-    """Return the date of the n-th occurrence of `weekday` (Mon=0..Sun=6) in (year, month)."""
     d = date(year, month, 1)
     offset = (weekday - d.weekday()) % 7
     return d + timedelta(days=offset + 7 * (n - 1))
 
 
 def japanese_holidays(year: int) -> set[date]:
-    """Approximate set of Japanese national holidays for the given year.
-
-    Substitute holidays are not implemented (close enough for synthetic data).
-    """
     holidays: set[date] = set()
-    holidays.add(date(year, 1, 1))                      # 元日
-    holidays.add(nth_weekday_of_month(year, 1, 0, 2))   # 成人の日 (Jan 2nd Monday)
-    holidays.add(date(year, 2, 11))                     # 建国記念の日
-    holidays.add(date(year, 2, 23))                     # 天皇誕生日
-    holidays.add(date(year, 3, 20))                     # 春分の日 (近似)
-    holidays.add(date(year, 4, 29))                     # 昭和の日
-    holidays.add(date(year, 5, 3))                      # 憲法記念日
-    holidays.add(date(year, 5, 4))                      # みどりの日
-    holidays.add(date(year, 5, 5))                      # こどもの日
-    holidays.add(nth_weekday_of_month(year, 7, 0, 3))   # 海の日 (Jul 3rd Monday)
-    holidays.add(date(year, 8, 11))                     # 山の日
-    holidays.add(nth_weekday_of_month(year, 9, 0, 3))   # 敬老の日 (Sep 3rd Monday)
-    holidays.add(date(year, 9, 23))                     # 秋分の日 (近似)
-    holidays.add(nth_weekday_of_month(year, 10, 0, 2))  # スポーツの日 (Oct 2nd Monday)
-    holidays.add(date(year, 11, 3))                     # 文化の日
-    holidays.add(date(year, 11, 23))                    # 勤労感謝の日
+    holidays.add(date(year, 1, 1))
+    holidays.add(nth_weekday_of_month(year, 1, 0, 2))
+    holidays.add(date(year, 2, 11))
+    holidays.add(date(year, 2, 23))
+    holidays.add(date(year, 3, 20))
+    holidays.add(date(year, 4, 29))
+    holidays.add(date(year, 5, 3))
+    holidays.add(date(year, 5, 4))
+    holidays.add(date(year, 5, 5))
+    holidays.add(nth_weekday_of_month(year, 7, 0, 3))
+    holidays.add(date(year, 8, 11))
+    holidays.add(nth_weekday_of_month(year, 9, 0, 3))
+    holidays.add(date(year, 9, 23))
+    holidays.add(nth_weekday_of_month(year, 10, 0, 2))
+    holidays.add(date(year, 11, 3))
+    holidays.add(date(year, 11, 23))
     return holidays
 
 
 def is_pension_day(d: date) -> bool:
-    """Pension payday: the 15th of even months."""
     return d.month % 2 == 0 and d.day == 15
 
 
 def sample_weather(month: int, rng: np.random.Generator) -> str:
-    """Sample weather. Winter months (Dec-Mar) get more snow, fewer sunny days."""
     if month in (12, 1, 2, 3):
-        probs = [0.30, 0.30, 0.15, 0.25]  # sunny / cloudy / rainy / snowy
+        probs = [0.30, 0.30, 0.15, 0.25]
     elif month in (6, 7):
-        probs = [0.35, 0.30, 0.35, 0.0]   # tsuyu (rainy season)
+        probs = [0.35, 0.30, 0.35, 0.0]
     else:
         probs = [0.55, 0.25, 0.18, 0.02]
     return rng.choice(["sunny", "cloudy", "rainy", "snowy"], p=probs)
 
 
 def sample_temperature(d: date, rng: np.random.Generator) -> float:
-    """Daily mean temperature: monthly mean + N(0, 3)."""
     mean = MONTHLY_MEAN_TEMP[d.month]
     return float(np.round(mean + rng.normal(0, 3.0), 1))
 
@@ -100,22 +134,20 @@ def sample_precipitation(weather: str, rng: np.random.Generator) -> float:
 
 def compute_sales(
     base: int,
-    sale_only: bool,
-    is_sale: bool,
     is_wed: bool,
     is_weekend: bool,
     is_pension: bool,
     is_holiday: bool,
     weather: str,
     temperature: float,
+    cpi_index: float,
     rng: np.random.Generator,
 ) -> int:
-    if sale_only and not is_sale:
-        return 0
-
+    """Apply the multipliers. Caller has already ensured the product is
+    available on this day."""
     multiplier = 1.0
-    if is_wed and is_sale:
-        multiplier *= 2.0
+    if is_wed:
+        multiplier *= 2.0       # 水曜セール（販促効果）
     if is_weekend:
         multiplier *= 1.5
     if is_pension:
@@ -131,6 +163,10 @@ def compute_sales(
     elif temperature <= 0:
         multiplier *= 0.9
 
+    # Inflation drag: 1% rise in CPI reduces sales by ~0.5% (mild elasticity).
+    inflation_drag = (cpi_index - 100.0) * 0.005
+    multiplier *= max(0.7, 1.0 - inflation_drag)
+
     expected = base * multiplier
     noise = rng.normal(0, expected * 0.15)
     return int(max(0, round(expected + noise)))
@@ -139,7 +175,6 @@ def compute_sales(
 def generate() -> pd.DataFrame:
     rng = np.random.default_rng(SEED)
 
-    # Pre-compute holidays for every year touched by the date range.
     holiday_set: set[date] = set()
     for year in range(START_DATE.year, END_DATE.year + 1):
         holiday_set |= japanese_holidays(year)
@@ -147,30 +182,36 @@ def generate() -> pd.DataFrame:
     rows: list[dict] = []
     current = START_DATE
     while current <= END_DATE:
-        dow_idx = current.weekday()  # Mon=0..Sun=6
+        dow_idx = current.weekday()
         is_wed = dow_idx == 2
         is_weekend = dow_idx >= 5
         is_holiday = current in holiday_set
         is_pension = is_pension_day(current)
         is_sale = is_wed or is_weekend
+        cpi_index = MONTHLY_CPI[(current.year, current.month)]
 
         weather = sample_weather(current.month, rng)
         temperature = sample_temperature(current, rng)
         precipitation = sample_precipitation(weather, rng)
 
         for product in PRODUCTS:
-            sales = compute_sales(
-                base=product["base"],
-                sale_only=product["sale_only"],
-                is_sale=is_sale,
-                is_wed=is_wed,
-                is_weekend=is_weekend,
-                is_pension=is_pension,
-                is_holiday=is_holiday,
-                weather=weather,
-                temperature=temperature,
-                rng=rng,
-            )
+            available = dow_idx in product["available_dows"]
+            if available:
+                sales = compute_sales(
+                    base=product["base"],
+                    is_wed=is_wed,
+                    is_weekend=is_weekend,
+                    is_pension=is_pension,
+                    is_holiday=is_holiday,
+                    weather=weather,
+                    temperature=temperature,
+                    cpi_index=cpi_index,
+                    rng=rng,
+                )
+            else:
+                sales = 0
+            effective_price = product["price_sale"] if is_sale else product["price_normal"]
+
             rows.append({
                 "date": current.isoformat(),
                 "product_id": product["product_id"],
@@ -183,6 +224,8 @@ def generate() -> pd.DataFrame:
                 "weather": weather,
                 "temperature": temperature,
                 "precipitation": precipitation,
+                "effective_price": effective_price,
+                "cpi_index": cpi_index,
                 "sales_count": sales,
             })
 
