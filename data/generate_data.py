@@ -3,7 +3,7 @@
 Output: data/sushi_sales.csv
 Period: 2024-04-01 to 2027-03-31 (1095 days) x 4 products = 4380 rows.
 
-Updated post-Eliza review:
+Updated after the v1.1 review:
 - Extended from 2 years to 3 years.
 - Replaced the prior "sale_only" flag with explicit per-product availability
   schedules (available_dows) reflecting the actual operational pattern:

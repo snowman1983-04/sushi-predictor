@@ -1,6 +1,6 @@
 """Train one model per (model_name, product_id) and persist artifacts.
 
-Updated post-Eliza review:
+Updated after the v1.1 review:
 - Classification thresholds are fit per-fold on the training portion only
   (previously fit on the entire dataset, which leaked test-fold information).
 - residual_std for regression confidence intervals is now computed from
