@@ -1,0 +1,15 @@
+[project]
+name = "sushi-predictor"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "jupyter>=1.0",
+    "lightgbm>=4.1",
+    "matplotlib>=3.8",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "plotly>=5.18",
+    "scikit-learn>=1.4",
+    "seaborn>=0.13",
+    "streamlit>=1.32",
+]
